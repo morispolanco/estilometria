@@ -3,20 +3,46 @@ import pandas as pd
 import numpy as np
 import re
 import nltk
-from nltk.tokenize import word_tokenize, sent_tokenize
+from nltk.tokenize import word_tokenize
+from nltk.tokenize.punkt import PunktSentenceTokenizer
 from nltk.corpus import stopwords
 from collections import Counter
 import matplotlib.pyplot as plt
 import seaborn as sns
 from io import StringIO
 import base64
-
-# Descargar recursos necesarios de NLTK
-nltk.download('punkt')
-nltk.download('stopwords')
+import os
 
 # Configuración de la página
 st.set_page_config(page_title="Análisis Estilométrico Forense", layout="wide")
+
+# Función para descargar recursos de NLTK con manejo de errores
+@st.cache_resource
+def download_nltk_resources():
+    try:
+        # Crear directorio para NLTK data si no existe
+        nltk_data_path = os.path.join(os.path.expanduser('~'), 'nltk_data')
+        if not os.path.exists(nltk_data_path):
+            os.makedirs(nltk_data_path)
+        
+        # Añadir el path a NLTK
+        nltk.data.path.append(nltk_data_path)
+        
+        # Descargar recursos necesarios
+        nltk.download('punkt', download_dir=nltk_data_path, quiet=True)
+        nltk.download('stopwords', download_dir=nltk_data_path, quiet=True)
+        
+        # Verificar si los recursos para español están disponibles
+        try:
+            nltk.data.find('tokenizers/punkt_tab/spanish')
+        except LookupError:
+            # Si no están disponibles, usar el tokenizador por defecto
+            st.warning("Los recursos para tokenización en español no están disponibles. Se usará el tokenizador por defecto.")
+    except Exception as e:
+        st.error(f"Error al descargar recursos de NLTK: {e}")
+
+# Descargar recursos de NLTK
+download_nltk_resources()
 
 # Función de preprocesamiento de texto
 def preprocess_text(text):
@@ -27,23 +53,38 @@ def preprocess_text(text):
     # Tokenización
     words = word_tokenize(text)
     # Eliminar stopwords
-    stop_words = set(stopwords.words('spanish'))
+    try:
+        stop_words = set(stopwords.words('spanish'))
+    except:
+        # Si no hay stopwords en español, usar las de inglés
+        stop_words = set(stopwords.words('english'))
     words = [word for word in words if word not in stop_words]
     return words
 
 # Funciones de análisis estilométrico
 def basic_stats(text):
+    # Tokenización de palabras
     words = word_tokenize(text.lower())
-    sentences = sent_tokenize(text)
+    
+    # Tokenización de oraciones con manejo de errores
+    try:
+        sentences = nltk.tokenize.sent_tokenize(text, language='spanish')
+    except:
+        try:
+            # Si falla en español, intentar con inglés
+            sentences = nltk.tokenize.sent_tokenize(text, language='english')
+        except:
+            # Si todo falla, usar un método simple basado en puntos
+            sentences = [s.strip() for s in text.split('.') if s.strip()]
     
     stats = {
         'Caracteres': len(text),
         'Palabras': len(words),
         'Oraciones': len(sentences),
         'Palabras únicas': len(set(words)),
-        'Longitud promedio de palabra': np.mean([len(word) for word in words]),
-        'Longitud promedio de oración': np.mean([len(word_tokenize(sent)) for sent in sentences]),
-        'Riqueza léxica': len(set(words)) / len(words) * 100 if len(words) > 0 else 0
+        'Longitud promedio de palabra': np.mean([len(word) for word in words]) if words else 0,
+        'Longitud promedio de oración': np.mean([len(word_tokenize(sent)) for sent in sentences]) if sentences else 0,
+        'Riqueza léxica': len(set(words)) / len(words) * 100 if words else 0
     }
     return stats
 
